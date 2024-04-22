@@ -1,10 +1,34 @@
+import csv
+from dataclasses import dataclass
+import json
 import os
 import re
 import gzip
-from flask import Flask, request, jsonify
+import sys
+import time
+# from flask import Flask, request, jsonify
 from google.cloud import storage
 
-app = Flask(__name__)
+# increase csv field size limit
+csv.field_size_limit(sys.maxsize)
+
+# app = Flask(__name__)
+
+
+@dataclass()
+class Env:
+    bucket_name: str
+    folder_path: str
+    file_pattern: str
+    output_file_path: str
+    output_blob_path: str
+
+    def __init__(self):
+        self.bucket_name = os.getenv("bucket_name")
+        self.folder_path = os.getenv("folder_path")
+        self.file_pattern = os.getenv("file_pattern")
+        self.output_file_path = os.getenv("output_file_path")
+        self.output_blob_path = os.getenv("output_blob_path")
 
 
 def combine_files(bucket_name, folder_path, file_pattern, output_file_path, output_blob_path=None):
@@ -33,21 +57,55 @@ def combine_files(bucket_name, folder_path, file_pattern, output_file_path, outp
         print(f"No files found matching pattern {file_pattern} to combine.")
         return
 
+    # Logging stuff
+    output_keys_count = 0
+    last_logged_output_count_time = time.time()
+    last_logged_output_count_value = 0
+
     with gzip.open(output_file_path, 'wt') as f_out:
-        # Initialize a list to store all lines
-        all_lines = []
+        f_out.write("{\n")
 
         # Iterate over each file
         for file_name in files_to_combine:
             print(f"Processing file: {file_name}")
             blob = bucket.get_blob(file_name)
             with gzip.open(blob.open("rb"), 'rt') as f_in:
-                # Read lines from the compressed file
-                lines = f_in.readlines()
-                # Append lines to all_lines
-                all_lines.extend(lines)
+                reader = csv.reader(f_in)
+                is_first_row = True
+                for i, row in enumerate(reader):
+                    assert (
+                        len(row) == 1
+                    ), f"row {i} of file {file_name} had more than 1 column! ({len(row)} columns) {row}"
+                    obj = json.loads(row[0])
+                    assert (
+                        len(obj) == 1
+                    ), f"row {i} of file {file_name} had more than 1 key! ({len(obj)} keys) {obj}"
 
-        f_out.writelines(all_lines)
+                    # Write key and value
+                    key, value = list(obj.items())[0]
+                    assert isinstance(
+                        key, str
+                    ), f"key {key} on line {i} of file {file_name} is not a string!"
+
+                    if not is_first_row:
+                        f_out.write(",\n")
+                    f_out.write("    ")
+                    f_out.write(f'"{key}": ')
+                    f_out.write(json.dumps(value))
+                    is_first_row = False
+
+                    # Progress logging
+                    output_keys_count += 1
+                    now = time.time()
+                    if now - last_logged_output_count_time > 5:
+                        new_lines = output_keys_count - last_logged_output_count_value
+                        print(
+                            f"Output keys written: {output_keys_count} ({new_lines/5:.2f} lines/s)"
+                        )
+                        last_logged_output_count_value = output_keys_count
+                        last_logged_output_count_time = now
+
+        f_out.write("\n}\n")
 
     print(f"Combined file {output_file_path} created successfully.")
 
@@ -61,25 +119,46 @@ def combine_files(bucket_name, folder_path, file_pattern, output_file_path, outp
         )
 
 
-@app.route('/')
-def combine_files_http():
-    # Get query parameters
-    bucket_name = request.args.get('bucket_name')
-    folder_path = request.args.get('folder_path')
-    file_pattern = request.args.get('file_pattern')
-    output_file_path = request.args.get('output_file_path')
-    output_blob_path = request.args.get('output_blob_path', default=None)
+# @app.route('/')
+# def combine_files_http():
+#     # Get query parameters
+#     bucket_name = request.args.get('bucket_name')
+#     folder_path = request.args.get('folder_path')
+#     file_pattern = request.args.get('file_pattern')
+#     output_file_path = request.args.get('output_file_path')
+#     output_blob_path = request.args.get('output_blob_path', default=None)
 
-    # Call the function to combine files
-    combine_files(bucket_name, folder_path, file_pattern,
-                  output_file_path, output_blob_path)
+#     print(f"bucket_name: {bucket_name}, "
+#           f"folder_path: {folder_path}, "
+#           f"file_pattern: {file_pattern}, "
+#           f"output_file_path: {output_file_path}, "
+#           f"output_blob_path: {output_blob_path}")
 
-    ret = {'message': 'Combined file created successfully.'}
-    if output_blob_path:
-        ret['output_blob_path'] = f"gs://{bucket_name}/{output_blob_path}"
+#     # Call the function to combine files
+#     combine_files(bucket_name, folder_path, file_pattern,
+#                   output_file_path, output_blob_path)
 
-    return jsonify(ret)
+#     ret = {'message': 'Combined file created successfully.'}
+#     if output_blob_path:
+#         ret['output_blob_path'] = f"gs://{bucket_name}/{output_blob_path}"
+
+#     print(json.dumps(ret))
+#     return jsonify(ret)
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0")
+    # app.run(debug=True, host="0.0.0.0")
+    env = Env()
+    print(f"bucket_name: {env.bucket_name}, "
+          f"folder_path: {env.folder_path}, "
+          f"file_pattern: {env.file_pattern}, "
+          f"output_file_path: {env.output_file_path}, "
+          f"output_blob_path: {env.output_blob_path}")
+
+    combine_files(
+        bucket_name=env.bucket_name,
+        folder_path=env.folder_path,
+        file_pattern=env.file_pattern,
+        output_file_path=env.output_file_path,
+        output_blob_path=env.output_blob_path
+    )
