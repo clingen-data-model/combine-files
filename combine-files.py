@@ -1,17 +1,34 @@
 import csv
+from dataclasses import dataclass
 import json
 import os
 import re
 import gzip
 import sys
 import time
-from flask import Flask, request, jsonify
+# from flask import Flask, request, jsonify
 from google.cloud import storage
 
 # increase csv field size limit
 csv.field_size_limit(sys.maxsize)
 
-app = Flask(__name__)
+# app = Flask(__name__)
+
+
+@dataclass()
+class Env:
+    bucket_name: str
+    folder_path: str
+    file_pattern: str
+    output_file_path: str
+    output_blob_path: str
+
+    def __init__(self):
+        self.bucket_name = os.getenv("bucket_name")
+        self.folder_path = os.getenv("folder_path")
+        self.file_pattern = os.getenv("file_pattern")
+        self.output_file_path = os.getenv("output_file_path")
+        self.output_blob_path = os.getenv("output_blob_path")
 
 
 def combine_files(bucket_name, folder_path, file_pattern, output_file_path, output_blob_path=None):
@@ -102,31 +119,46 @@ def combine_files(bucket_name, folder_path, file_pattern, output_file_path, outp
         )
 
 
-@app.route('/')
-def combine_files_http():
-    # Get query parameters
-    bucket_name = request.args.get('bucket_name')
-    folder_path = request.args.get('folder_path')
-    file_pattern = request.args.get('file_pattern')
-    output_file_path = request.args.get('output_file_path')
-    output_blob_path = request.args.get('output_blob_path', default=None)
+# @app.route('/')
+# def combine_files_http():
+#     # Get query parameters
+#     bucket_name = request.args.get('bucket_name')
+#     folder_path = request.args.get('folder_path')
+#     file_pattern = request.args.get('file_pattern')
+#     output_file_path = request.args.get('output_file_path')
+#     output_blob_path = request.args.get('output_blob_path', default=None)
 
-    print(f"bucket_name: {bucket_name}, "
-          f"folder_path: {folder_path}, "
-          f"file_pattern: {file_pattern}, "
-          f"output_file_path: {output_file_path}, "
-          f"output_blob_path: {output_blob_path}")
+#     print(f"bucket_name: {bucket_name}, "
+#           f"folder_path: {folder_path}, "
+#           f"file_pattern: {file_pattern}, "
+#           f"output_file_path: {output_file_path}, "
+#           f"output_blob_path: {output_blob_path}")
 
-    # Call the function to combine files
-    combine_files(bucket_name, folder_path, file_pattern,
-                  output_file_path, output_blob_path)
+#     # Call the function to combine files
+#     combine_files(bucket_name, folder_path, file_pattern,
+#                   output_file_path, output_blob_path)
 
-    ret = {'message': 'Combined file created successfully.'}
-    if output_blob_path:
-        ret['output_blob_path'] = f"gs://{bucket_name}/{output_blob_path}"
+#     ret = {'message': 'Combined file created successfully.'}
+#     if output_blob_path:
+#         ret['output_blob_path'] = f"gs://{bucket_name}/{output_blob_path}"
 
-    return jsonify(ret)
+#     print(json.dumps(ret))
+#     return jsonify(ret)
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0")
+    # app.run(debug=True, host="0.0.0.0")
+    env = Env()
+    print(f"bucket_name: {env.bucket_name}, "
+          f"folder_path: {env.folder_path}, "
+          f"file_pattern: {env.file_pattern}, "
+          f"output_file_path: {env.output_file_path}, "
+          f"output_blob_path: {env.output_blob_path}")
+
+    combine_files(
+        bucket_name=env.bucket_name,
+        folder_path=env.folder_path,
+        file_pattern=env.file_pattern,
+        output_file_path=env.output_file_path,
+        output_blob_path=env.output_blob_path
+    )
