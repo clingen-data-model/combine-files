@@ -14,7 +14,7 @@ WORKDIR /app
 COPY --from=build /usr/local/lib/python3.9/site-packages/ /usr/local/lib/python3.9/site-packages/
 
 # Copy the application code
-COPY . .
+COPY combine-files.py .
 
 # Set environment variables if needed
 ENV PYTHONUNBUFFERED=1
